@@ -1,0 +1,169 @@
+---
+title: "R Syntax Drills"
+description: "Adaptive practice for core R syntax."
+output:
+  learnr::tutorial:
+    progressive: false
+    allow_skip: true
+    css: "www/styles.css"
+runtime: shiny_prerendered
+tutorial:
+  id: "drillr-drills"
+---
+
+```{r setup, include=FALSE}
+library(learnr)
+library(gradethis)
+library(shiny)
+
+APP_CONFIG <- drillr:::drillr_runtime_config()
+source("R/question_manifest.R")
+source("R/assignment_storage.R")
+source("R/syntax_checkers.R")
+
+options(tutorial.storage = "none")
+
+gradethis::gradethis_setup(
+  pass.praise = FALSE,
+  fail.encourage = FALSE,
+  fail.hint = FALSE
+)
+
+learnr::tutorial_options(
+  exercise.timelimit = 10,
+  exercise.reveal_solution = FALSE
+)
+```
+
+```{r logging-start, context="server-start", include=FALSE}
+library(httr2)
+source("R/logging.R")
+register_logging_handlers(APP_CONFIG)
+```
+
+```{r identity-server, context="server", include=FALSE}
+session$userData$identity <- shiny::reactiveVal(NULL)
+session$userData$assignment_ids <- shiny::reactiveVal(
+  stats::setNames(character(), character())
+)
+session$userData$logging_status <- shiny::reactiveVal(
+  list(ok = NA, message = "Load your student ID to begin.")
+)
+
+clear_assignment_player <- function() {
+  session$userData$assignment_ids(stats::setNames(character(), character()))
+  session$sendCustomMessage("assignment:clear", list())
+}
+
+shiny::observeEvent(input$save_identity, {
+  student_id <- trimws(input$student_id)
+  student_name <- trimws(input$student_name)
+
+  if (!grepl("^[A-Za-z0-9._@-]{2,100}$", student_id)) {
+    clear_assignment_player()
+    session$userData$logging_status(list(
+      ok = FALSE,
+      message = "Enter a valid student ID (2–100 letters, digits, ., _, @, or -)."
+    ))
+    return()
+  }
+
+  manifest <- read_question_manifest()
+  assignments <- tryCatch(
+    initialize_student_assignments(
+      student_id = student_id,
+      manifest = manifest,
+      config = APP_CONFIG
+    ),
+    error = function(e) e
+  )
+
+  if (inherits(assignments, "error")) {
+    clear_assignment_player()
+    session$userData$logging_status(list(
+      ok = FALSE,
+      message = paste("Could not load your drills:", conditionMessage(assignments))
+    ))
+    return()
+  }
+
+  session$userData$identity(list(
+    student_id = student_id,
+    student_name = student_name
+  ))
+  drillr:::drillr_save_identity(student_id, student_name)
+  set_active_assignment_player(session, assignments)
+
+  post_log_event(
+    session,
+    "identity_saved",
+    data = list(label = "identity"),
+    config = APP_CONFIG
+  )
+})
+
+shiny::observeEvent(input$forget_identity, {
+  drillr:::drillr_forget_identity()
+  session$userData$identity(NULL)
+  clear_assignment_player()
+  shiny::updateTextInput(session, "student_id", value = "")
+  shiny::updateTextInput(session, "student_name", value = "")
+  session$userData$logging_status(list(
+    ok = NA,
+    message = "Saved identity forgotten on this computer."
+  ))
+})
+
+output$identity_status <- shiny::renderUI({
+  status <- session$userData$logging_status()
+  cls <- if (isTRUE(status$ok)) {
+    "alert alert-success"
+  } else if (identical(status$ok, FALSE)) {
+    "alert alert-danger"
+  } else {
+    "alert alert-warning"
+  }
+  shiny::tags$div(class = cls, status$message)
+})
+```
+
+## Before you begin
+
+Your responses are graded immediately and recorded for your instructor. A question stays in your active drill list until you answer it correctly; it is then replaced by another question selected from your learning history.
+
+Only your last student ID and optional name are remembered on this computer. Your exercise answers are not saved locally between tutorial sessions.
+
+```{r identity-ui, echo=FALSE}
+saved_identity <- drillr:::drillr_read_identity()
+shiny::wellPanel(
+  shiny::textInput(
+    "student_id",
+    "Student ID",
+    value = saved_identity$student_id,
+    placeholder = "e.g., abc123"
+  ),
+  shiny::textInput(
+    "student_name",
+    "Name (optional)",
+    value = saved_identity$student_name,
+    placeholder = "e.g., Ada Lovelace"
+  ),
+  shiny::actionButton("save_identity", "Load drills"),
+  shiny::actionButton("forget_identity", "Forget saved identity"),
+  shiny::br(), shiny::br(),
+  shiny::uiOutput("identity_status")
+)
+```
+
+## Your drills
+
+<div id="assignment-waiting" class="alert alert-info">
+Your questions will appear here after you load a valid student ID.
+</div>
+
+```{r question-pool, child="runtime_question_pool.Rmd"}
+```
+
+```{r assignment-player-script, echo=FALSE}
+shiny::includeScript("www/assignment-player.js")
+```
