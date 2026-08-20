@@ -23,6 +23,10 @@ drillr_runtime_config <- function() {
       "drillr.topic_priority",
       c("vector_creation", "vector_indexing")
     )),
-    webhook_url = webhook_url
+    webhook_url = webhook_url,
+    bank_version = "",
+    package_version = as.character(utils::packageVersion("drillr")),
+    manifest_path = "",
+    update_notice = ""
   )
 }
