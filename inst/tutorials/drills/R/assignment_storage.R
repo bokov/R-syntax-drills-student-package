@@ -48,6 +48,15 @@ make_service_request_id <- function(prefix = "assignment") {
   )
 }
 
+add_bank_handshake_fields <- function(payload, config = APP_CONFIG) {
+  bank_version <- trimws(as.character(config$bank_version %||% ""))
+  if (nzchar(bank_version)) {
+    payload$bank_version <- bank_version
+    payload$package_version <- as.character(config$package_version %||% "")
+  }
+  payload
+}
+
 assignment_service_payload <- function(request_type, student_id, config = APP_CONFIG) {
   if (!request_type %in% c("get_active_assignments", "get_or_create_active_assignments")) {
     stop("Unsupported assignment request_type: ", request_type, ".")
@@ -72,7 +81,16 @@ assignment_service_payload <- function(request_type, student_id, config = APP_CO
     payload$topic_priority <- unname(settings$topic_priority)
   }
 
-  payload
+  add_bank_handshake_fields(payload, config)
+}
+
+service_error_condition <- function(body, fallback = "The assignment service returned ok=false.") {
+  code <- as.character(body$code %||% "")
+  message <- as.character(body$error %||% fallback)
+  structure(
+    list(message = message, call = NULL, code = code, body = body),
+    class = c("drillr_service_error", "error", "condition")
+  )
 }
 
 post_assignment_service <- function(payload, config = APP_CONFIG, timeout_sec = 30) {
@@ -86,15 +104,7 @@ post_assignment_service <- function(payload, config = APP_CONFIG, timeout_sec = 
     httr2::req_perform()
 
   body <- httr2::resp_body_json(response, simplifyVector = FALSE)
-  if (!isTRUE(body$ok)) {
-    msg <- if (!is.null(body$error) && length(body$error)) {
-      as.character(body$error)[[1]]
-    } else {
-      "The assignment service returned ok=false."
-    }
-    stop(msg)
-  }
-
+  if (!isTRUE(body$ok)) stop(service_error_condition(body))
   body
 }
 
@@ -182,9 +192,9 @@ validate_persisted_assignments <- function(assignments, manifest) {
   missing_from_manifest <- setdiff(assignments$item_label, manifest$item_label)
   if (length(missing_from_manifest)) {
     stop(
-      "Your installed drillr package does not contain assigned question(s): ",
+      "Your current Drillr question bank does not contain assigned question(s): ",
       paste(missing_from_manifest, collapse = ", "),
-      ". Update drillr before continuing."
+      ". Close and reopen Drillr to update before continuing."
     )
   }
 
@@ -198,12 +208,18 @@ validate_persisted_assignments <- function(assignments, manifest) {
     any(assignments$question_hash != expected$question_hash)
   ) {
     stop(
-      "The server assignment does not match this installed drillr question bank. ",
-      "Update drillr before continuing."
+      "The server assignment does not match this Drillr question bank. ",
+      "Close and reopen Drillr to update before continuing."
     )
   }
 
   assignments
+}
+
+resolve_assignment_bank_mismatch <- function(error) {
+  update <- drillr:::drillr_update_for_service(error$body)
+  error$message <- update$message
+  stop(error)
 }
 
 initialize_student_assignments <- function(
@@ -216,9 +232,21 @@ initialize_student_assignments <- function(
     student_id = student_id,
     config = config
   )
-  body <- post_assignment_service(payload, config = config)
+
+  body <- tryCatch(
+    post_assignment_service(payload, config = config),
+    drillr_service_error = function(e) {
+      if (identical(e$code, "bank_update_required")) {
+        resolve_assignment_bank_mismatch(e)
+      }
+      stop(e)
+    }
+  )
   assignments <- assignment_response_table(body)
-  validate_persisted_assignments(assignments, manifest)
+  assignments <- validate_persisted_assignments(assignments, manifest)
+  attr(assignments, "retired_assignments") <- body$retired_assignments %||% list()
+  attr(assignments, "bank_version") <- body$bank_version %||% ""
+  assignments
 }
 
 assignment_id_map <- function(assignments) {
@@ -228,3 +256,5 @@ assignment_id_map <- function(assignments) {
   }
   stats::setNames(as.character(assignments$assignment_id), assignments$item_label)
 }
+
+`%||%` <- function(x, y) if (is.null(x) || length(x) == 0) y else x
