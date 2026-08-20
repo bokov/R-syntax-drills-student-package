@@ -14,6 +14,19 @@ read_question_manifest <- function(path = "question_manifest.csv") {
   read.csv(path, stringsAsFactors = FALSE, na.strings = "")
 }
 
+question_manifest_bank_version <- function(manifest) {
+  drillr:::drillr_manifest_bank_version(manifest)
+}
+
+question_hash_for_item <- function(item_label, manifest, default = "") {
+  if (is.null(item_label) || is.na(item_label) || !nzchar(item_label)) {
+    return(default)
+  }
+  exact <- which(manifest$item_label == item_label)
+  if (length(exact) == 1) return(as.character(manifest$question_hash[[exact]]))
+  default
+}
+
 question_topic <- function(item_label, manifest, default = "unassigned") {
   if (is.null(item_label) || is.na(item_label) || !nzchar(item_label)) {
     return(default)

@@ -17,9 +17,13 @@ library(gradethis)
 library(shiny)
 
 APP_CONFIG <- drillr:::drillr_runtime_config()
+DRILLR_LAUNCH_BANK <- drillr:::drillr_runtime_bank()
+drillr:::drillr_activate_bank(DRILLR_LAUNCH_BANK)
+
 source("R/question_manifest.R")
 source("R/assignment_storage.R")
 source("R/syntax_checkers.R")
+source("R/logging.R")
 
 options(tutorial.storage = "none")
 
@@ -36,18 +40,42 @@ learnr::tutorial_options(
 ```
 
 ```{r logging-start, context="server-start", include=FALSE}
-library(httr2)
-source("R/logging.R")
-register_logging_handlers(APP_CONFIG)
+fallback_config <- APP_CONFIG
+fallback_config$manifest_path <- DRILLR_LAUNCH_BANK$manifest_path
+fallback_config$bank_version <- DRILLR_LAUNCH_BANK$bank_version
+fallback_manifest <- read_question_manifest(DRILLR_LAUNCH_BANK$manifest_path)
+register_logging_handlers(fallback_config, fallback_manifest)
 ```
 
 ```{r identity-server, context="server", include=FALSE}
+DRILLR_SESSION_BANK <- DRILLR_RENDERED_BANK
+DRILLR_STALE_RENDER <- !identical(
+  DRILLR_LAUNCH_BANK$bank_version,
+  DRILLR_SESSION_BANK$bank_version
+)
+
+SESSION_CONFIG <- APP_CONFIG
+SESSION_CONFIG$manifest_path <- DRILLR_SESSION_BANK$manifest_path
+SESSION_CONFIG$bank_version <- DRILLR_SESSION_BANK$bank_version
+SESSION_CONFIG$package_version <- as.character(utils::packageVersion("drillr"))
+SESSION_MANIFEST <- read_question_manifest(DRILLR_SESSION_BANK$manifest_path)
+
+session$userData$runtime_config <- SESSION_CONFIG
+session$userData$question_manifest <- SESSION_MANIFEST
 session$userData$identity <- shiny::reactiveVal(NULL)
 session$userData$assignment_ids <- shiny::reactiveVal(
   stats::setNames(character(), character())
 )
 session$userData$logging_status <- shiny::reactiveVal(
-  list(ok = NA, message = "Load your student ID to begin.")
+  list(
+    ok = NA,
+    message = if (DRILLR_STALE_RENDER) {
+      drillr:::drillr_invalidate_prerendered_html()
+      "New drill content is ready. Close and reopen Drillr before loading your drills."
+    } else {
+      "Load your student ID to begin."
+    }
+  )
 )
 
 clear_assignment_player <- function() {
@@ -59,6 +87,16 @@ shiny::observeEvent(input$save_identity, {
   student_id <- trimws(input$student_id)
   student_name <- trimws(input$student_name)
 
+  if (DRILLR_STALE_RENDER) {
+    clear_assignment_player()
+    drillr:::drillr_invalidate_prerendered_html()
+    session$userData$logging_status(list(
+      ok = FALSE,
+      message = "New drill content is ready. Close and reopen Drillr before loading your drills."
+    ))
+    return()
+  }
+
   if (!grepl("^[A-Za-z0-9._@-]{2,100}$", student_id)) {
     clear_assignment_player()
     session$userData$logging_status(list(
@@ -68,12 +106,30 @@ shiny::observeEvent(input$save_identity, {
     return()
   }
 
-  manifest <- read_question_manifest()
+  flush_summary <- flush_log_outbox(
+    session,
+    student_id = student_id,
+    config = SESSION_CONFIG,
+    manifest = SESSION_MANIFEST
+  )
+  if (isTRUE(flush_summary$transport_failed) || isTRUE(flush_summary$blocked)) {
+    clear_assignment_player()
+    session$userData$logging_status(list(
+      ok = FALSE,
+      message = if (nzchar(flush_summary$message)) {
+        flush_summary$message
+      } else {
+        "Could not send locally saved responses. Try loading your drills again."
+      }
+    ))
+    return()
+  }
+
   assignments <- tryCatch(
     initialize_student_assignments(
       student_id = student_id,
-      manifest = manifest,
-      config = APP_CONFIG
+      manifest = SESSION_MANIFEST,
+      config = SESSION_CONFIG
     ),
     error = function(e) e
   )
@@ -98,8 +154,31 @@ shiny::observeEvent(input$save_identity, {
     session,
     "identity_saved",
     data = list(label = "identity"),
-    config = APP_CONFIG
+    config = SESSION_CONFIG,
+    manifest = SESSION_MANIFEST
   )
+
+  retired <- attr(assignments, "retired_assignments")
+  notices <- character()
+  if (length(retired)) {
+    notices <- c(
+      notices,
+      "A previously assigned question was discontinued; you have been assigned a different one."
+    )
+  }
+  if (isTRUE(flush_summary$dropped > 0L)) {
+    notices <- c(
+      notices,
+      "A locally saved response was not retried because that question changed or was discontinued."
+    )
+  }
+  if (length(notices)) {
+    set_logging_status(
+      session,
+      TRUE,
+      paste(c("Responses are being recorded.", notices), collapse = " ")
+    )
+  }
 })
 
 shiny::observeEvent(input$forget_identity, {
@@ -131,7 +210,7 @@ output$identity_status <- shiny::renderUI({
 
 Your responses are graded immediately and recorded for your instructor. A question stays in your active drill list until you answer it correctly; it is then replaced by another question selected from your learning history.
 
-Only your last student ID and optional name are remembered on this computer. Your exercise answers are not saved locally between tutorial sessions.
+Only your last student ID and optional name are normally remembered on this computer. If a response cannot reach the grading service, Drillr temporarily keeps that response in a local outbox and retries it later. Exercise answers are otherwise not saved locally between tutorial sessions.
 
 ```{r identity-ui, echo=FALSE}
 saved_identity <- drillr:::drillr_read_identity()
@@ -161,7 +240,11 @@ shiny::wellPanel(
 Your questions will appear here after you load a valid student ID.
 </div>
 
-```{r question-pool, child="runtime_question_pool.Rmd"}
+```{r question-pool, child=DRILLR_LAUNCH_BANK$pool_path}
+```
+
+```{r rendered-bank, context="data", include=FALSE}
+DRILLR_RENDERED_BANK <- DRILLR_LAUNCH_BANK
 ```
 
 ```{r assignment-player-script, echo=FALSE}
