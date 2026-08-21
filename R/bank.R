@@ -23,6 +23,8 @@
   "question_hash"
 )
 
+.drillr_runtime_support_chunk_label <- "drillr-runtime-support"
+
 drillr_bank_cache_root <- function(create = TRUE) {
   path <- file.path(tools::R_user_dir("drillr", "cache"), "bank")
   if (isTRUE(create) && !dir.exists(path)) {
@@ -31,7 +33,14 @@ drillr_bank_cache_root <- function(create = TRUE) {
   path
 }
 
-drillr_manifest_bank_version <- function(manifest) {
+drillr_md5_text_lines <- function(lines, prefix = "drillr-text-") {
+  path <- tempfile(prefix)
+  on.exit(unlink(path), add = TRUE)
+  writeLines(enc2utf8(lines), path, useBytes = TRUE)
+  paste0("md5-", unname(tools::md5sum(path)))
+}
+
+drillr_manifest_base_version <- function(manifest) {
   missing <- setdiff(.drillr_bank_version_columns, names(manifest))
   if (length(missing)) {
     stop(
@@ -77,26 +86,58 @@ drillr_manifest_bank_version <- function(manifest) {
     fileEncoding = "UTF-8"
   )
 
-  computed <- paste0("md5-", unname(tools::md5sum(path)))
-  if ("bank_version" %in% names(manifest)) {
-    declared <- trimws(as.character(manifest$bank_version))
-    declared <- unique(declared[!is.na(declared) & nzchar(declared)])
-    if (length(declared) != 1L) {
-      stop("Question manifest must contain exactly one non-empty bank_version.")
-    }
-    if (!identical(declared[[1]], computed)) {
-      stop("Question manifest bank_version does not match its scored runtime content.")
-    }
-  }
+  paste0("md5-", unname(tools::md5sum(path)))
+}
 
+drillr_manifest_declared_version <- function(manifest) {
+  if (!"bank_version" %in% names(manifest)) return("")
+
+  declared <- trimws(as.character(manifest$bank_version))
+  declared <- unique(declared[!is.na(declared) & nzchar(declared)])
+  if (length(declared) != 1L) {
+    stop("Question manifest must contain exactly one non-empty bank_version.")
+  }
+  declared[[1]]
+}
+
+drillr_bank_version_with_support <- function(base_version, support_hash = "") {
+  base_version <- trimws(as.character(base_version)[[1]])
+  support_hash <- trimws(as.character(support_hash %||% "")[[1]])
+  if (!nzchar(support_hash)) return(base_version)
+
+  drillr_md5_text_lines(
+    c(
+      paste0("question_bank=", base_version),
+      paste0("runtime_support=", support_hash)
+    ),
+    "drillr-bank-version-with-support-"
+  )
+}
+
+drillr_manifest_bank_version <- function(manifest, support_hash = "") {
+  computed <- drillr_bank_version_with_support(
+    drillr_manifest_base_version(manifest),
+    support_hash
+  )
+  declared <- drillr_manifest_declared_version(manifest)
+  if (nzchar(declared) && !identical(declared, computed)) {
+    stop("Question manifest bank_version does not match its runtime content.")
+  }
   computed
 }
 
 drillr_read_bank_manifest <- function(path) {
   if (!file.exists(path)) stop("Question manifest does not exist: ", path)
   manifest <- read.csv(path, stringsAsFactors = FALSE, na.strings = "")
-  version <- drillr_manifest_bank_version(manifest)
-  attr(manifest, "bank_version") <- version
+  base_version <- drillr_manifest_base_version(manifest)
+  declared_version <- drillr_manifest_declared_version(manifest)
+  attr(manifest, "base_bank_version") <- base_version
+  attr(manifest, "declared_bank_version") <- declared_version
+  attr(manifest, "bank_version") <- if (nzchar(declared_version)) {
+    declared_version
+  } else {
+    base_version
+  }
   manifest
 }
 
@@ -111,8 +152,40 @@ drillr_pool_item_labels <- function(path) {
   vapply(pieces, function(x) x[[2]], character(1))
 }
 
+drillr_pool_runtime_support_lines <- function(path) {
+  if (!file.exists(path)) stop("Runtime question pool does not exist: ", path)
+  lines <- readLines(path, warn = FALSE, encoding = "UTF-8")
+  start_pattern <- paste0(
+    "^```\\{r[[:space:]]+",
+    .drillr_runtime_support_chunk_label,
+    "(?:,|})"
+  )
+  starts <- grep(start_pattern, lines, perl = TRUE)
+  if (!length(starts)) return(character())
+  if (length(starts) != 1L) {
+    stop("Runtime question pool contains multiple runtime-support chunks.")
+  }
+
+  closing <- which(seq_along(lines) > starts[[1]] & grepl("^```[[:space:]]*$", lines))
+  if (!length(closing)) {
+    stop("Runtime question pool runtime-support chunk is not closed.")
+  }
+  end <- closing[[1]]
+  if (end <= starts[[1]] + 1L) return(character())
+  lines[(starts[[1]] + 1L):(end - 1L)]
+}
+
+drillr_pool_runtime_support_hash <- function(path) {
+  lines <- drillr_pool_runtime_support_lines(path)
+  if (!length(lines)) return("")
+  drillr_md5_text_lines(lines, "drillr-runtime-support-")
+}
+
 drillr_validate_bank_pair <- function(manifest_path, pool_path, metadata = NULL) {
   manifest <- drillr_read_bank_manifest(manifest_path)
+  support_hash <- drillr_pool_runtime_support_hash(pool_path)
+  bank_version <- drillr_manifest_bank_version(manifest, support_hash)
+
   expected <- as.character(manifest$item_label[
     manifest$event == "exercise_result" & manifest$points > 0
   ])
@@ -134,15 +207,20 @@ drillr_validate_bank_pair <- function(manifest_path, pool_path, metadata = NULL)
     if (!identical(as.character(metadata$pool_md5), pool_md5)) {
       stop("Cached runtime question pool checksum does not match its metadata.")
     }
-    if (!identical(as.character(metadata$bank_version), attr(manifest, "bank_version"))) {
+    if (!identical(as.character(metadata$bank_version), bank_version)) {
       stop("Cached bank version does not match its metadata.")
+    }
+    metadata_support <- as.character(metadata$runtime_support_hash %||% "")
+    if (!identical(metadata_support, support_hash)) {
+      stop("Cached runtime-support hash does not match its metadata.")
     }
   }
 
   list(
     manifest_path = normalizePath(manifest_path, mustWork = TRUE),
     pool_path = normalizePath(pool_path, mustWork = TRUE),
-    bank_version = attr(manifest, "bank_version")
+    bank_version = bank_version,
+    runtime_support_hash = support_hash
   )
 }
 
@@ -271,6 +349,7 @@ drillr_install_cached_bank <- function(manifest_path, pool_path, cache_root) {
 
   metadata <- list(
     bank_version = validated$bank_version,
+    runtime_support_hash = validated$runtime_support_hash,
     manifest_md5 = unname(tools::md5sum(target_manifest)),
     pool_md5 = unname(tools::md5sum(target_pool)),
     cached_at_utc = format(Sys.time(), "%Y-%m-%dT%H:%M:%OS3Z", tz = "UTC"),
@@ -370,10 +449,12 @@ drillr_resolve_bank_version <- function(
     )
   }
 
-  bank <- drillr_install_cached_bank(manifest_two, pool, cache_root)
-  if (!identical(bank$bank_version, expected_version)) {
+  validated <- drillr_validate_bank_pair(manifest_two, pool)
+  if (!identical(validated$bank_version, expected_version)) {
     stop("Downloaded drill-bank version did not match the service requirement.")
   }
+
+  bank <- drillr_install_cached_bank(manifest_two, pool, cache_root)
   drillr_activate_bank(bank)
   bank
 }
