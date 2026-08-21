@@ -133,6 +133,12 @@ migrate_outbox_record <- function(record, manifest, config = APP_CONFIG) {
     return(list(drop = FALSE, changed = FALSE, payload = payload))
   }
 
+  queued_support <- as.character(payload$runtime_support_hash %||% "")
+  current_support <- as.character(config$runtime_support_hash %||% "")
+  if (!identical(queued_support, current_support)) {
+    return(list(drop = TRUE, changed = FALSE, payload = payload))
+  }
+
   item_label <- as.character(payload$item_label %||% "")
   current_hash <- question_hash_for_item(item_label, manifest, default = "")
   queued_hash <- as.character(record$question_hash %||% "")
@@ -142,6 +148,7 @@ migrate_outbox_record <- function(record, manifest, config = APP_CONFIG) {
 
   payload$bank_version <- current_version
   payload$package_version <- config$package_version
+  payload$runtime_support_hash <- current_support
   list(drop = FALSE, changed = TRUE, payload = payload)
 }
 
