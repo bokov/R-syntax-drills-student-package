@@ -40,6 +40,13 @@ test_that("checker support comes from the runtime pool rather than a duplicate f
     "learnr::tutorial_options(exercise.checker = drillr_exercise_checker)",
     fixed = TRUE
   )
+  expect_match(pool, "drillr_exercise_checker <- local({", fixed = TRUE)
+  expect_match(pool, "checker_uses_assignment_equals", fixed = TRUE)
+  expect_false(grepl(
+    "if (uses_assignment_equals(user_code))",
+    pool,
+    fixed = TRUE
+  ))
 })
 
 test_that("tutorial exposes a lazy progress page", {
