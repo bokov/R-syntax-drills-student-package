@@ -25,6 +25,7 @@ drillr_runtime_config <- function() {
     )),
     webhook_url = webhook_url,
     bank_version = "",
+    runtime_support_hash = "",
     package_version = as.character(utils::packageVersion("drillr")),
     manifest_path = "",
     update_notice = ""
