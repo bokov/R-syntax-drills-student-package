@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - agent/progress-runtime-support
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: write
