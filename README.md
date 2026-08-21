@@ -26,7 +26,7 @@ The package talks to the Apps Script web-app endpoint and to the public student-
 - `runtime_question_pool.Rmd`
 - `question_manifest.csv`
 
-The pair has a deterministic bank fingerprint that includes its embedded runtime checker support. Drillr sends its current fingerprint to the assignment service. If the service requires a different bank, Drillr downloads the published student-safe pair, verifies that the pair matches the exact version requested by the service, and stores it under Drillr's standard per-user cache directory. It does **not** overwrite files inside the installed R package.
+The pair has a deterministic bank fingerprint. If the service requires a different bank, Drillr downloads the published student-safe pair, verifies that the pair matches the exact version requested by the service, and stores it under Drillr's standard per-user cache directory. It does **not** overwrite files inside the installed R package.
 
 After a new bank is downloaded, close and reopen Drillr so learnr can render the new question pool. Package updates are therefore needed for changes to the Drillr engine or stable shell, not for routine question-bank releases.
 
