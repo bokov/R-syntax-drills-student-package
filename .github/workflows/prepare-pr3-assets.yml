@@ -29,6 +29,11 @@ jobs:
           path: authoring
           sparse-checkout: student-assets
 
+      - name: Set up R
+        uses: r-lib/actions/setup-r@v2
+        with:
+          use-public-rspm: true
+
       - name: Make frozen fallback self-contained
         run: Rscript tools/build_student_assets.R authoring
 
