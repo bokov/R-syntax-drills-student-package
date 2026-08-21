@@ -15,7 +15,7 @@ The tutorial remembers the last student ID and optional name on the local comput
 
 ## Student-safe package boundary
 
-The package contains only the generated runtime question pool, its manifest, the check code required to grade those questions, and client/UI assets. It does not contain the canonical authoring bank, instructor gradebook code, Google Sheet administration code, or Apps Script source.
+The package contains a frozen fallback runtime question pool and manifest plus the local client/UI assets. Current question content and the checker support required to grade it are published as student-safe generated assets in `bokov/R-syntax-drills`; the package does not contain the canonical authoring bank, instructor gradebook code, Google Sheet administration code, or Apps Script source.
 
 The package talks to the Apps Script web-app endpoint and to the public student-safe release files in `bokov/R-syntax-drills`. It never contains or directly accesses the instructor Google Sheet ID.
 
@@ -26,11 +26,11 @@ The package talks to the Apps Script web-app endpoint and to the public student-
 - `runtime_question_pool.Rmd`
 - `question_manifest.csv`
 
-The pair has a deterministic bank fingerprint. Drillr sends its current fingerprint to the assignment service. If the service requires a different bank, Drillr downloads the published student-safe pair, verifies that the pair matches the exact version requested by the service, and stores it under Drillr's standard per-user cache directory. It does **not** overwrite files inside the installed R package.
+The pair has a deterministic bank fingerprint that includes its embedded runtime checker support. Drillr sends its current fingerprint to the assignment service. If the service requires a different bank, Drillr downloads the published student-safe pair, verifies that the pair matches the exact version requested by the service, and stores it under Drillr's standard per-user cache directory. It does **not** overwrite files inside the installed R package.
 
 After a new bank is downloaded, close and reopen Drillr so learnr can render the new question pool. Package updates are therefore needed for changes to the Drillr engine or stable shell, not for routine question-bank releases.
 
-For repository maintenance, `tools/build_student_assets.R` copies the pinned authoring repository's published `student-assets` pair into the package. CI verifies that the bundled release remains synchronized with that pinned source.
+The package's bundled pool and manifest are a frozen, self-contained bootstrap/fallback. They are validated for internal consistency by package tests but are intentionally not kept synchronized with the current authoring bank.
 
 ## Service configuration
 

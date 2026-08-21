@@ -22,7 +22,7 @@ drillr:::drillr_activate_bank(DRILLR_LAUNCH_BANK)
 
 source("R/question_manifest.R")
 source("R/assignment_storage.R")
-source("R/syntax_checkers.R")
+source("R/progress.R")
 source("R/logging.R")
 
 options(tutorial.storage = "none")
@@ -43,8 +43,10 @@ learnr::tutorial_options(
 fallback_config <- APP_CONFIG
 fallback_config$manifest_path <- DRILLR_LAUNCH_BANK$manifest_path
 fallback_config$bank_version <- DRILLR_LAUNCH_BANK$bank_version
+fallback_config$runtime_support_hash <- DRILLR_LAUNCH_BANK$runtime_support_hash
 fallback_manifest <- read_question_manifest(DRILLR_LAUNCH_BANK$manifest_path)
 register_logging_handlers(fallback_config, fallback_manifest)
+register_progress_handlers()
 ```
 
 ```{r identity-server, context="server", include=FALSE}
@@ -57,6 +59,7 @@ DRILLR_STALE_RENDER <- !identical(
 SESSION_CONFIG <- APP_CONFIG
 SESSION_CONFIG$manifest_path <- DRILLR_SESSION_BANK$manifest_path
 SESSION_CONFIG$bank_version <- DRILLR_SESSION_BANK$bank_version
+SESSION_CONFIG$runtime_support_hash <- DRILLR_SESSION_BANK$runtime_support_hash
 SESSION_CONFIG$package_version <- as.character(utils::packageVersion("drillr"))
 SESSION_MANIFEST <- read_question_manifest(DRILLR_SESSION_BANK$manifest_path)
 
@@ -77,6 +80,12 @@ session$userData$logging_status <- shiny::reactiveVal(
     }
   )
 )
+session$userData$progress_rows <- shiny::reactiveVal(empty_progress_table())
+session$userData$progress_as_of_utc <- shiny::reactiveVal("")
+session$userData$progress_status <- shiny::reactiveVal(list(
+  ok = NA,
+  message = "Load your student ID, then open Your progress."
+))
 
 clear_assignment_player <- function() {
   session$userData$assignment_ids(stats::setNames(character(), character()))
@@ -147,6 +156,13 @@ shiny::observeEvent(input$save_identity, {
     student_id = student_id,
     student_name = student_name
   ))
+  set_progress_state(
+    session,
+    ok = NA,
+    message = "Open Your progress to load your current summary.",
+    rows = empty_progress_table(),
+    as_of_utc = ""
+  )
   drillr:::drillr_save_identity(student_id, student_name)
   set_active_assignment_player(session, assignments)
 
@@ -169,7 +185,7 @@ shiny::observeEvent(input$save_identity, {
   if (isTRUE(flush_summary$dropped > 0L)) {
     notices <- c(
       notices,
-      "A locally saved response was not retried because that question changed or was discontinued."
+      "A locally saved response was not retried because that question or its grading rules changed or were discontinued."
     )
   }
   if (length(notices)) {
@@ -185,12 +201,23 @@ shiny::observeEvent(input$forget_identity, {
   drillr:::drillr_forget_identity()
   session$userData$identity(NULL)
   clear_assignment_player()
+  set_progress_state(
+    session,
+    ok = NA,
+    message = "Load your student ID, then open Your progress.",
+    rows = empty_progress_table(),
+    as_of_utc = ""
+  )
   shiny::updateTextInput(session, "student_id", value = "")
   shiny::updateTextInput(session, "student_name", value = "")
   session$userData$logging_status(list(
     ok = NA,
     message = "Saved identity forgotten on this computer."
   ))
+})
+
+shiny::observeEvent(input$refresh_progress, {
+  refresh_session_progress(session)
 })
 
 output$identity_status <- shiny::renderUI({
@@ -203,6 +230,28 @@ output$identity_status <- shiny::renderUI({
     "alert alert-warning"
   }
   shiny::tags$div(class = cls, status$message)
+})
+
+output$progress_status <- shiny::renderUI({
+  status <- session$userData$progress_status()
+  cls <- if (isTRUE(status$ok)) {
+    "alert alert-success"
+  } else if (identical(status$ok, FALSE)) {
+    "alert alert-danger"
+  } else {
+    "alert alert-info"
+  }
+  shiny::tags$div(class = cls, status$message)
+})
+
+output$progress_table <- shiny::renderTable({
+  format_progress_table(session$userData$progress_rows())
+}, striped = TRUE, bordered = FALSE, spacing = "s")
+
+output$progress_as_of <- shiny::renderText({
+  as_of <- session$userData$progress_as_of_utc()
+  if (!nzchar(as_of)) return("")
+  paste("Scheduler estimate as of", as_of)
 })
 ```
 
@@ -249,4 +298,18 @@ DRILLR_RENDERED_BANK <- DRILLR_LAUNCH_BANK
 
 ```{r assignment-player-script, echo=FALSE}
 shiny::includeScript("www/assignment-player.js")
+```
+
+## Your progress
+
+This table summarizes the same learning history Drillr uses to choose your questions. Estimated recall is a scheduling estimate, not a grade.
+
+```{r progress-ui, echo=FALSE}
+shiny::tagList(
+  shiny::uiOutput("progress_status"),
+  shiny::tableOutput("progress_table"),
+  shiny::textOutput("progress_as_of"),
+  shiny::br(),
+  shiny::actionButton("refresh_progress", "Refresh progress")
+)
 ```
