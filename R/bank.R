@@ -8,6 +8,16 @@
   "student-assets/runtime_question_pool.Rmd"
 )
 
+.drillr_fallback_bank_manifest_url <- paste0(
+  "https://raw.githubusercontent.com/bokov/R-syntax-drills/dev/",
+  "student-assets/question_manifest.csv"
+)
+
+.drillr_fallback_bank_pool_url <- paste0(
+  "https://raw.githubusercontent.com/bokov/R-syntax-drills/dev/",
+  "student-assets/runtime_question_pool.Rmd"
+)
+
 .drillr_bank_env <- c(
   manifest = "DRILLR_BANK_MANIFEST_PATH",
   pool = "DRILLR_BANK_POOL_PATH",
@@ -308,11 +318,64 @@ drillr_runtime_bank <- function(cache_root = drillr_bank_cache_root()) {
   bundled
 }
 
+drillr_download_bank_bundle <- function(
+  expected_version,
+  manifest_url,
+  pool_url,
+  incoming,
+  downloader
+) {
+  manifest_one <- file.path(incoming, "manifest-one.csv")
+  pool <- file.path(incoming, "runtime_question_pool.Rmd")
+  manifest_two <- file.path(incoming, "manifest-two.csv")
+
+  unlink(c(manifest_one, pool, manifest_two))
+
+  downloader(manifest_url, manifest_one, timeout_sec = 15)
+  first <- drillr_read_bank_manifest(manifest_one)
+  if (!identical(attr(first, "bank_version"), expected_version)) {
+    stop(
+      "The published drill bundle does not match the version required by the grading service."
+    )
+  }
+
+  downloader(pool_url, pool, timeout_sec = 30)
+  downloader(manifest_url, manifest_two, timeout_sec = 15)
+  if (!identical(
+    unname(tools::md5sum(manifest_one)),
+    unname(tools::md5sum(manifest_two))
+  )) {
+    stop("The published drill bank changed while it was downloading; try again.")
+  }
+
+  second <- drillr_read_bank_manifest(manifest_two)
+  if (!identical(attr(second, "bank_version"), expected_version)) {
+    stop(
+      "The published drill bundle changed before the download completed; try again."
+    )
+  }
+
+  validated <- drillr_validate_bank_pair(manifest_two, pool)
+  if (!identical(validated$bank_version, expected_version)) {
+    stop("Downloaded drill-bank version did not match the service requirement.")
+  }
+
+  list(manifest_path = manifest_two, pool_path = pool)
+}
+
 drillr_resolve_bank_version <- function(
   expected_version,
   cache_root = drillr_bank_cache_root(),
   manifest_url = getOption("drillr.bank_manifest_url", .drillr_default_bank_manifest_url),
   pool_url = getOption("drillr.bank_pool_url", .drillr_default_bank_pool_url),
+  fallback_manifest_url = getOption(
+    "drillr.fallback_bank_manifest_url",
+    .drillr_fallback_bank_manifest_url
+  ),
+  fallback_pool_url = getOption(
+    "drillr.fallback_bank_pool_url",
+    .drillr_fallback_bank_pool_url
+  ),
   downloader = drillr_download_asset
 ) {
   expected_version <- trimws(as.character(expected_version %||% ""))
@@ -342,38 +405,43 @@ drillr_resolve_bank_version <- function(
   dir.create(incoming)
   on.exit(unlink(incoming, recursive = TRUE), add = TRUE)
 
-  manifest_one <- file.path(incoming, "manifest-one.csv")
-  pool <- file.path(incoming, "runtime_question_pool.Rmd")
-  manifest_two <- file.path(incoming, "manifest-two.csv")
+  sources <- list(
+    list(manifest_url = manifest_url, pool_url = pool_url),
+    list(manifest_url = fallback_manifest_url, pool_url = fallback_pool_url)
+  )
+  errors <- character()
+  downloaded <- NULL
 
-  downloader(manifest_url, manifest_one, timeout_sec = 15)
-  first <- drillr_read_bank_manifest(manifest_one)
-  if (!identical(attr(first, "bank_version"), expected_version)) {
+  for (source in sources) {
+    attempt <- tryCatch(
+      drillr_download_bank_bundle(
+        expected_version = expected_version,
+        manifest_url = source$manifest_url,
+        pool_url = source$pool_url,
+        incoming = incoming,
+        downloader = downloader
+      ),
+      error = function(e) e
+    )
+    if (!inherits(attempt, "error")) {
+      downloaded <- attempt
+      break
+    }
+    errors <- c(errors, conditionMessage(attempt))
+  }
+
+  if (is.null(downloaded)) {
     stop(
-      "The published drill bundle does not match the version required by the grading service."
+      "Could not download the required drill bank from main or dev. ",
+      paste(errors, collapse = " | ")
     )
   }
 
-  downloader(pool_url, pool, timeout_sec = 30)
-  downloader(manifest_url, manifest_two, timeout_sec = 15)
-  if (!identical(
-    unname(tools::md5sum(manifest_one)),
-    unname(tools::md5sum(manifest_two))
-  )) {
-    stop("The published drill bank changed while it was downloading; try again.")
-  }
-
-  second <- drillr_read_bank_manifest(manifest_two)
-  if (!identical(attr(second, "bank_version"), expected_version)) {
-    stop(
-      "The published drill bundle changed before the download completed; try again."
-    )
-  }
-
-  bank <- drillr_install_cached_bank(manifest_two, pool, cache_root)
-  if (!identical(bank$bank_version, expected_version)) {
-    stop("Downloaded drill-bank version did not match the service requirement.")
-  }
+  bank <- drillr_install_cached_bank(
+    downloaded$manifest_path,
+    downloaded$pool_path,
+    cache_root
+  )
   drillr_activate_bank(bank)
   bank
 }
