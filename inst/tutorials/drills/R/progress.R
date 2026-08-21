@@ -139,6 +139,14 @@ set_progress_state <- function(session, ok = NA, message = "", rows = NULL, as_o
 }
 
 refresh_session_progress <- function(session) {
+  if (
+    is.null(session$userData$progress_status) ||
+    is.null(session$userData$progress_rows) ||
+    is.null(session$userData$progress_as_of_utc)
+  ) {
+    return(invisible(NULL))
+  }
+
   identity <- tryCatch(
     shiny::isolate(session$userData$identity()),
     error = function(e) NULL
