@@ -1,0 +1,47 @@
+name: Prepare PR3 assets
+
+on:
+  push:
+    branches:
+      - agent/progress-runtime-support
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out student package
+        uses: actions/checkout@v5
+        with:
+          ref: agent/progress-runtime-support
+
+      - name: Check out merged authoring assets
+        uses: actions/checkout@v5
+        with:
+          repository: bokov/R-syntax-drills
+          ref: d283f02f9ddc0d79bc528f71e61db9fe08826f73
+          path: authoring
+          sparse-checkout: student-assets
+
+      - name: Make frozen fallback self-contained
+        run: Rscript tools/build_student_assets.R authoring
+
+      - name: Apply tutorial shell edits
+        run: python tools/apply_pr3_edits.py
+
+      - name: Commit prepared files
+        run: |
+          git add -- \
+            inst/tutorials/drills/drills.Rmd \
+            inst/tutorials/drills/runtime_question_pool.Rmd \
+            inst/tutorials/drills/question_manifest.csv
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Prepare self-contained fallback and progress shell"
+          git push origin HEAD:agent/progress-runtime-support
