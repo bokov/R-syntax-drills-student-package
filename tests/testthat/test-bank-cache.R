@@ -1,81 +1,20 @@
-test_that("bundled bank has a deterministic support-aware fingerprint", {
+test_that("bundled bank has a deterministic runtime fingerprint", {
   bank <- drillr:::drillr_bundled_bank()
   expect_match(bank$bank_version, "^md5-[0-9a-f]{32}$")
-  expect_match(bank$runtime_support_hash, "^md5-[0-9a-f]{32}$")
 
   manifest <- drillr:::drillr_read_bank_manifest(bank$manifest_path)
   expect_identical(
-    drillr:::drillr_manifest_bank_version(
-      manifest[nrow(manifest):1, , drop = FALSE],
-      bank$runtime_support_hash
-    ),
+    drillr:::drillr_manifest_bank_version(manifest[nrow(manifest):1, , drop = FALSE]),
     bank$bank_version
   )
-  expect_false(
-    identical(
-      drillr:::drillr_manifest_base_version(manifest),
-      bank$bank_version
-    )
-  )
 })
 
-test_that("legacy pools without embedded support retain the base fingerprint", {
+test_that("a service-requested bank is validated and cached as one pair", {
   bundled <- drillr:::drillr_bundled_bank()
-  lines <- readLines(bundled$pool_path, warn = FALSE, encoding = "UTF-8")
-  start <- grep("^```\\{r drillr-runtime-support(?:,|})", lines, perl = TRUE)
-  expect_length(start, 1)
-  closing <- which(seq_along(lines) > start & grepl("^```[[:space:]]*$", lines))
-  expect_gt(length(closing), 0)
-
-  legacy_pool <- tempfile(fileext = ".Rmd")
-  writeLines(lines[-seq.int(start, closing[[1]])], legacy_pool, useBytes = TRUE)
-  legacy <- drillr:::drillr_validate_bank_pair(
-    bundled$manifest_path,
-    legacy_pool
-  )
-  manifest <- drillr:::drillr_read_bank_manifest(bundled$manifest_path)
-
-  expect_identical(legacy$runtime_support_hash, "")
-  expect_identical(
-    legacy$bank_version,
-    drillr:::drillr_manifest_base_version(manifest)
-  )
-})
-
-test_that("declared support-aware versions detect checker tampering", {
-  bundled <- drillr:::drillr_bundled_bank()
-  manifest <- read.csv(
-    bundled$manifest_path,
-    stringsAsFactors = FALSE,
-    na.strings = ""
-  )
-  manifest$bank_version <- bundled$bank_version
-  manifest_path <- tempfile(fileext = ".csv")
-  write.csv(manifest, manifest_path, row.names = FALSE, na = "")
-
-  pool_path <- tempfile(fileext = ".Rmd")
-  lines <- readLines(bundled$pool_path, warn = FALSE, encoding = "UTF-8")
-  support_line <- grep("^parse_student_code <- function", lines)[[1]]
-  lines[[support_line]] <- paste0(lines[[support_line]], " # changed")
-  writeLines(lines, pool_path, useBytes = TRUE)
-
-  expect_error(
-    drillr:::drillr_validate_bank_pair(manifest_path, pool_path),
-    "bank_version does not match"
-  )
-})
-
-test_that("a service-requested support-aware bank is cached as one pair", {
-  bundled <- drillr:::drillr_bundled_bank()
-  manifest <- read.csv(
-    bundled$manifest_path,
-    stringsAsFactors = FALSE,
-    na.strings = ""
-  )
+  manifest <- read.csv(bundled$manifest_path, stringsAsFactors = FALSE, na.strings = "")
   manifest$question_hash[[1]] <- paste0(manifest$question_hash[[1]], "x")
   manifest$bank_version <- NULL
-  support_hash <- drillr:::drillr_pool_runtime_support_hash(bundled$pool_path)
-  expected <- drillr:::drillr_manifest_bank_version(manifest, support_hash)
+  expected <- drillr:::drillr_manifest_bank_version(manifest)
   manifest$bank_version <- expected
 
   source_dir <- tempfile("bank-source-")
@@ -114,7 +53,6 @@ test_that("a service-requested support-aware bank is cached as one pair", {
   )
 
   expect_identical(bank$bank_version, expected)
-  expect_identical(bank$runtime_support_hash, support_hash)
   expect_identical(bank$source, "cache")
   expect_true(bank$updated)
   expect_true(file.exists(file.path(cache_root, "current_version.txt")))

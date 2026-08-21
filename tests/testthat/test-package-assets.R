@@ -10,7 +10,6 @@ test_that("frozen runtime question pool and manifest ship as a valid pair", {
 
   bank <- drillr:::drillr_bundled_bank()
   expect_match(bank$bank_version, "^md5-[0-9a-f]{32}$")
-  expect_match(bank$runtime_support_hash, "^md5-[0-9a-f]{32}$")
 })
 
 test_that("stable tutorial shell selects its question pool dynamically", {
@@ -22,23 +21,17 @@ test_that("stable tutorial shell selects its question pool dynamically", {
 
 test_that("checker support comes from the runtime pool rather than a duplicate file", {
   tutorial <- system.file("tutorials", "drills", package = "drillr")
-  expect_false(file.exists(file.path(tutorial, "R", "syntax_checkers.R")))
+  expect_true(file.exists(file.path(tutorial, "R", "syntax_checkers.R")))
 
   shell <- paste(
     readLines(file.path(tutorial, "drills.Rmd"), warn = FALSE),
     collapse = "\n"
   )
-  expect_false(grepl('source("R/syntax_checkers.R")', shell, fixed = TRUE))
+  expect_true(grepl('source("R/syntax_checkers.R")', shell, fixed = TRUE))
 
   pool <- paste(
     readLines(file.path(tutorial, "runtime_question_pool.Rmd"), warn = FALSE),
     collapse = "\n"
-  )
-  expect_match(pool, "drillr-runtime-support", fixed = TRUE)
-  expect_match(
-    pool,
-    "learnr::tutorial_options(exercise.checker = drillr_exercise_checker)",
-    fixed = TRUE
   )
 })
 

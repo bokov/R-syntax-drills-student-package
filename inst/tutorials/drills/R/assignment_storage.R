@@ -53,7 +53,6 @@ add_bank_handshake_fields <- function(payload, config = APP_CONFIG) {
   if (nzchar(bank_version)) {
     payload$bank_version <- bank_version
     payload$package_version <- as.character(config$package_version %||% "")
-    payload$runtime_support_hash <- as.character(config$runtime_support_hash %||% "")
   }
   payload
 }

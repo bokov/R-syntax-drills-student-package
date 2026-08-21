@@ -20,6 +20,7 @@ APP_CONFIG <- drillr:::drillr_runtime_config()
 DRILLR_LAUNCH_BANK <- drillr:::drillr_runtime_bank()
 drillr:::drillr_activate_bank(DRILLR_LAUNCH_BANK)
 
+source("R/syntax_checkers.R")
 source("R/question_manifest.R")
 source("R/assignment_storage.R")
 source("R/progress.R")
@@ -35,7 +36,8 @@ gradethis::gradethis_setup(
 
 learnr::tutorial_options(
   exercise.timelimit = 10,
-  exercise.reveal_solution = FALSE
+  exercise.reveal_solution = FALSE,
+  exercise.checker = drillr_exercise_checker
 )
 ```
 
@@ -43,7 +45,6 @@ learnr::tutorial_options(
 fallback_config <- APP_CONFIG
 fallback_config$manifest_path <- DRILLR_LAUNCH_BANK$manifest_path
 fallback_config$bank_version <- DRILLR_LAUNCH_BANK$bank_version
-fallback_config$runtime_support_hash <- DRILLR_LAUNCH_BANK$runtime_support_hash
 fallback_manifest <- read_question_manifest(DRILLR_LAUNCH_BANK$manifest_path)
 register_logging_handlers(fallback_config, fallback_manifest)
 register_progress_handlers()
@@ -59,7 +60,6 @@ DRILLR_STALE_RENDER <- !identical(
 SESSION_CONFIG <- APP_CONFIG
 SESSION_CONFIG$manifest_path <- DRILLR_SESSION_BANK$manifest_path
 SESSION_CONFIG$bank_version <- DRILLR_SESSION_BANK$bank_version
-SESSION_CONFIG$runtime_support_hash <- DRILLR_SESSION_BANK$runtime_support_hash
 SESSION_CONFIG$package_version <- as.character(utils::packageVersion("drillr"))
 SESSION_MANIFEST <- read_question_manifest(DRILLR_SESSION_BANK$manifest_path)
 

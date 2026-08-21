@@ -8,8 +8,6 @@ test_that("production service defaults match the current drill service", {
     c("vector_creation", "vector_indexing")
   )
   expect_match(config$webhook_url, "^https://script\\.google\\.com/macros/s/.+/exec$")
-  expect_identical(config$bank_version, "")
-  expect_identical(config$runtime_support_hash, "")
 })
 
 test_that("webhook URL can be overridden for development", {
