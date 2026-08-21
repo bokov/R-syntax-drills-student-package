@@ -6,6 +6,15 @@ body {
   margin-bottom: 1.5rem;
 }
 
+/* learnr adds .disabled to Run Code / Submit Answer while processing without
+   actually disabling the button. Keep that busy state visually enabled; real
+   disabled buttons still use Bootstrap's disabled styling. */
+.tutorial-exercise .btn-tutorial-run.disabled:not([disabled]) {
+  cursor: pointer;
+  opacity: 1;
+  filter: alpha(opacity=100);
+}
+
 .alert {
   margin-top: 0.75rem;
 }
