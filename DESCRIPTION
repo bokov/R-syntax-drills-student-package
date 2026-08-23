@@ -1,7 +1,7 @@
 Package: drillr
 Type: Package
 Title: Local R Syntax Drills with Adaptive Practice
-Version: 0.1.0.9005
+Version: 0.1.0.9006
 Authors@R: person("Alex", "Bokov", email = "bokov@uthscsa.edu", role = c("aut", "cre"))
 Description: Runs interactive learnr syntax drills locally while using a central
     assignment service to maintain each student's adaptive practice queue and
