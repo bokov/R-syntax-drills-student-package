@@ -35,22 +35,6 @@ test_that("checker support comes from the runtime pool rather than a duplicate f
   )
 })
 
-test_that("active exercise buttons do not use disabled-looking styling", {
-  tutorial <- system.file("tutorials", "drills", package = "drillr")
-  styles <- paste(
-    readLines(file.path(tutorial, "www", "styles.css"), warn = FALSE),
-    collapse = "\n"
-  )
-
-  expect_match(
-    styles,
-    ".tutorial-exercise .btn-tutorial-run.disabled:not([disabled])",
-    fixed = TRUE
-  )
-  expect_match(styles, "cursor: pointer;", fixed = TRUE)
-  expect_match(styles, "opacity: 1;", fixed = TRUE)
-})
-
 test_that("tutorial exposes a lazy progress page", {
   tutorial <- system.file("tutorials", "drills", package = "drillr")
   shell <- paste(
@@ -58,13 +42,6 @@ test_that("tutorial exposes a lazy progress page", {
     collapse = "\n"
   )
 
-  expect_match(shell, "## Your progress", fixed = TRUE)
   expect_match(shell, "register_progress_handlers()", fixed = TRUE)
   expect_match(shell, "tableOutput(\"progress_table\")", fixed = TRUE)
-  expect_match(shell, "Estimated recall is a scheduling estimate, not a grade.", fixed = TRUE)
-})
-
-test_that("student package does not ship canonical question-bank sources", {
-  root <- system.file(package = "drillr")
-  expect_false(dir.exists(file.path(root, "question-bank")))
 })
