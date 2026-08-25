@@ -70,6 +70,20 @@ session$userData$progress_status <- shiny::reactiveVal(list(
   message = "Load your student ID, then open Your progress."
 ))
 
+#' Clear active assignments from the session and browser player
+#'
+#' Resets the server-side item-label-to-assignment-ID map and tells the
+#' browser-side assignment player to hide all active questions. This is used
+#' whenever identity validation/loading fails and when a saved identity is
+#' explicitly forgotten.
+#'
+#' @return The value returned by `session$sendCustomMessage()`; callers use the
+#'   function for its session/browser side effects.
+#' @details Called by the `save_identity` observer on validation, outbox, or
+#'   assignment-loading failure and by the `forget_identity` observer. It has no
+#'   within-repo named-function dependencies; it writes the `assignment_ids`
+#'   reactive and emits the `assignment:clear` message handled by
+#'   `assignment-player.js`.
 clear_assignment_player <- function() {
   session$userData$assignment_ids(stats::setNames(character(), character()))
   session$sendCustomMessage("assignment:clear", list())

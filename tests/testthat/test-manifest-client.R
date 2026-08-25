@@ -1,3 +1,12 @@
+#' Load tutorial client helpers into an isolated test environment
+#'
+#' Recreates the subset of the learnr runtime needed to test assignment payload
+#' reconciliation and queued-item usability without launching a tutorial.
+#'
+#' @return An environment containing `question_manifest.R`,
+#'   `assignment_storage.R`, and `logging.R` helpers plus a minimal `APP_CONFIG`.
+#' @details Used by both tests in this file. It depends on the installed tutorial
+#'   copies of those three helper files and has no callers outside this test file.
 load_tutorial_client <- function() {
   tutorial <- system.file("tutorials", "drills", package = "drillr")
   env <- new.env(parent = globalenv())
