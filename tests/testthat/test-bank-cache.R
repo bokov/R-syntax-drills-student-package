@@ -44,7 +44,7 @@ test_that("changed manifest downloads and installs a matching runtime pool", {
     stringsAsFactors = FALSE,
     na.strings = ""
   )
-  manifest$release <- 1L
+  manifest$release <- as.integer(manifest$release) + 1L
 
   source_dir <- tempfile("bank-source-")
   cache_root <- tempfile("bank-cache-")
