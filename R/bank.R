@@ -168,7 +168,6 @@ drillr_activate_bank <- function(bank, prepared = FALSE) {
   } else {
     Sys.unsetenv(.drillr_bank_prepared_env)
   }
-  Sys.unsetenv("DRILLR_BANK_VERSION")
   invisible(bank)
 }
 
