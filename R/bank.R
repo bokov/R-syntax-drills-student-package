@@ -25,7 +25,7 @@ drillr_bank_cache_root <- function(create = TRUE) {
 
 drillr_read_bank_manifest <- function(path) {
   if (!file.exists(path)) stop("Question manifest does not exist: ", path)
-  read.csv(path, stringsAsFactors = FALSE, na.strings = "")
+  utils::read.csv(path, stringsAsFactors = FALSE, na.strings = "")
 }
 
 drillr_manifests_equal <- function(old, new) {
