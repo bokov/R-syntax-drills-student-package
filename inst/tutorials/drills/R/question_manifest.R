@@ -6,7 +6,7 @@ read_question_manifest <- function(path = "question_manifest.csv") {
       topic = character(),
       points = numeric(),
       starter_question = logical(),
-      question_hash = character(),
+      release = integer(),
       stringsAsFactors = FALSE
     ))
   }
@@ -14,17 +14,11 @@ read_question_manifest <- function(path = "question_manifest.csv") {
   read.csv(path, stringsAsFactors = FALSE, na.strings = "")
 }
 
-question_manifest_bank_version <- function(manifest) {
-  drillr:::drillr_manifest_bank_version(manifest)
-}
-
-question_hash_for_item <- function(item_label, manifest, default = "") {
-  if (is.null(item_label) || is.na(item_label) || !nzchar(item_label)) {
-    return(default)
-  }
-  exact <- which(manifest$item_label == item_label)
-  if (length(exact) == 1) return(as.character(manifest$question_hash[[exact]]))
-  default
+scored_manifest_labels <- function(manifest) {
+  if (is.null(manifest) || !nrow(manifest)) return(character())
+  unique(as.character(manifest$item_label[
+    manifest$event == "exercise_result" & manifest$points > 0
+  ]))
 }
 
 question_topic <- function(item_label, manifest, default = "unassigned") {

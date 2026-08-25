@@ -21,11 +21,9 @@ drillr_runtime_config <- function() {
     queue_size = as.integer(getOption("drillr.queue_size", 10L)),
     topic_priority = as.character(getOption(
       "drillr.topic_priority",
-      c("vector_creation", "vector_indexing","syntax_vocabulary")
+      c("vector_creation", "vector_indexing", "syntax_vocabulary")
     )),
     webhook_url = webhook_url,
-    bank_version = "",
-    package_version = as.character(utils::packageVersion("drillr")),
     manifest_path = "",
     update_notice = ""
   )
