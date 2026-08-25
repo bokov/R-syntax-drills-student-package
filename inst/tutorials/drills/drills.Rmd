@@ -40,20 +40,16 @@ learnr::tutorial_options(
 )
 ```
 
-```{r rendered-bank, context="data", include=FALSE}
-DRILLR_RENDERED_BANK <- DRILLR_LAUNCH_BANK
-```
-
 ```{r logging-start, context="server-start", include=FALSE}
 fallback_config <- APP_CONFIG
-fallback_config$manifest_path <- DRILLR_RENDERED_BANK$manifest_path
-fallback_manifest <- DRILLR_RENDERED_BANK$manifest
+fallback_config$manifest_path <- DRILLR_LAUNCH_BANK$manifest_path
+fallback_manifest <- DRILLR_LAUNCH_BANK$manifest
 register_logging_handlers(fallback_config, fallback_manifest)
 register_progress_handlers()
 ```
 
 ```{r identity-server, context="server", include=FALSE}
-DRILLR_SESSION_BANK <- DRILLR_RENDERED_BANK
+DRILLR_SESSION_BANK <- DRILLR_LAUNCH_BANK
 SESSION_CONFIG <- APP_CONFIG
 SESSION_CONFIG$manifest_path <- DRILLR_SESSION_BANK$manifest_path
 SESSION_MANIFEST <- DRILLR_SESSION_BANK$manifest
