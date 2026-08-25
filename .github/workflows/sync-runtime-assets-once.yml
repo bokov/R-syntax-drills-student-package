@@ -1,0 +1,66 @@
+name: Sync hashless runtime assets once
+
+on:
+  push:
+    branches:
+      - agent/manifest-driven-runtime
+    paths:
+      - .github/workflows/sync-runtime-assets-once.yml
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: agent/manifest-driven-runtime
+
+      - name: Download authoring runtime pair
+        shell: python
+        run: |
+          import urllib.request
+          from pathlib import Path
+          base = "https://raw.githubusercontent.com/bokov/R-syntax-drills/agent/manifest-release-versioning/student-assets"
+          targets = {
+              "question_manifest.csv": Path("inst/tutorials/drills/question_manifest.csv"),
+              "runtime_question_pool.Rmd": Path("inst/tutorials/drills/runtime_question_pool.Rmd"),
+          }
+          for name, target in targets.items():
+              with urllib.request.urlopen(f"{base}/{name}", timeout=60) as response:
+                  target.write_bytes(response.read())
+
+      - name: Verify bundled manifest
+        shell: python
+        run: |
+          import csv
+          from pathlib import Path
+          path = Path("inst/tutorials/drills/question_manifest.csv")
+          with path.open(newline="", encoding="utf-8") as fh:
+              reader = csv.reader(fh)
+              header = next(reader)
+              rows = list(reader)
+          expected = ["item_label", "event", "topic", "points", "starter_question", "release"]
+          if header != expected:
+              raise SystemExit(f"Unexpected bundled manifest header: {header!r}")
+          if len(rows) != 236:
+              raise SystemExit(f"Expected 236 bundled questions, found {len(rows)}")
+          if any(row[-1] != "1" for row in rows):
+              raise SystemExit("Bundled manifest contains a release other than 1")
+          for token in ("question_hash", "bank_version", "md5-"):
+              if token in path.read_text(encoding="utf-8"):
+                  raise SystemExit(f"Legacy fingerprint token remains: {token}")
+
+      - name: Commit bundled runtime pair
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add inst/tutorials/drills/question_manifest.csv inst/tutorials/drills/runtime_question_pool.Rmd
+          git diff --cached --check
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "Bundle hashless release-1 runtime assets"
+          git push origin HEAD:agent/manifest-driven-runtime
