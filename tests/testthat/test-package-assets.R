@@ -16,7 +16,17 @@ test_that("stable tutorial shell selects its question pool dynamically", {
   tutorial <- system.file("tutorials", "drills", package = "drillr")
   rmd <- readLines(file.path(tutorial, "drills.Rmd"), warn = FALSE)
   expect_true(any(grepl("child=DRILLR_LAUNCH_BANK\\$pool_path", rmd)))
-  expect_true(any(grepl("DRILLR_RENDERED_BANK <- DRILLR_LAUNCH_BANK", rmd, fixed = TRUE)))
+  expect_false(any(grepl("DRILLR_RENDERED_BANK", rmd, fixed = TRUE)))
+  expect_true(any(grepl(
+    "fallback_manifest <- DRILLR_LAUNCH_BANK$manifest",
+    rmd,
+    fixed = TRUE
+  )))
+  expect_true(any(grepl(
+    "DRILLR_SESSION_BANK <- DRILLR_LAUNCH_BANK",
+    rmd,
+    fixed = TRUE
+  )))
 })
 
 test_that("checker support comes from the runtime pool rather than a duplicate file", {
