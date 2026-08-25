@@ -33,6 +33,28 @@ jobs:
           extra-packages: any::rcmdcheck
           needs: check
 
+      - name: Reject non-ASCII R source
+        shell: Rscript {0}
+        run: |
+          paths <- c(
+            list.files("R", pattern = "\\.[Rr]$", full.names = TRUE),
+            if (file.exists("NAMESPACE")) "NAMESPACE" else character()
+          )
+          has_non_ascii <- vapply(paths, function(path) {
+            bytes <- readBin(
+              path,
+              what = "raw",
+              n = as.integer(file.info(path)$size)
+            )
+            any(as.integer(bytes) > 127L)
+          }, logical(1))
+          if (any(has_non_ascii)) {
+            stop(
+              "Non-ASCII bytes found in portable R package code: ",
+              paste(paths[has_non_ascii], collapse = ", ")
+            )
+          }
+
       - name: Check package
         uses: r-lib/actions/check-r-package@v2
         with:
