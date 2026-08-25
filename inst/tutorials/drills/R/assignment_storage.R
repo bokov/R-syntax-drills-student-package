@@ -6,7 +6,6 @@ ASSIGNMENT_COLUMNS <- c(
   "item_label",
   "topic",
   "points",
-  "question_hash",
   "assigned_at_utc",
   "assignment_reason",
   "assignment_status",
@@ -48,16 +47,12 @@ make_service_request_id <- function(prefix = "assignment") {
   )
 }
 
-add_bank_handshake_fields <- function(payload, config = APP_CONFIG) {
-  bank_version <- trimws(as.character(config$bank_version %||% ""))
-  if (nzchar(bank_version)) {
-    payload$bank_version <- bank_version
-    payload$package_version <- as.character(config$package_version %||% "")
-  }
-  payload
-}
-
-assignment_service_payload <- function(request_type, student_id, config = APP_CONFIG) {
+assignment_service_payload <- function(
+  request_type,
+  student_id,
+  config = APP_CONFIG,
+  manifest = NULL
+) {
   if (!request_type %in% c("get_active_assignments", "get_or_create_active_assignments")) {
     stop("Unsupported assignment request_type: ", request_type, ".")
   }
@@ -72,8 +67,12 @@ assignment_service_payload <- function(request_type, student_id, config = APP_CO
     request_type = request_type,
     request_id = make_service_request_id(),
     course_id = config$course_id,
-    student_id = student_id
+    student_id = student_id,
+    reconcile_bank = TRUE
   )
+
+  available <- scored_manifest_labels(manifest)
+  if (length(available)) payload$available_item_labels <- unname(available)
 
   if (identical(request_type, "get_or_create_active_assignments")) {
     settings <- assignment_config(config)
@@ -81,7 +80,7 @@ assignment_service_payload <- function(request_type, student_id, config = APP_CO
     payload$topic_priority <- unname(settings$topic_priority)
   }
 
-  add_bank_handshake_fields(payload, config)
+  payload
 }
 
 service_error_condition <- function(body, fallback = "The assignment service returned ok=false.") {
@@ -95,7 +94,7 @@ service_error_condition <- function(body, fallback = "The assignment service ret
 
 post_assignment_service <- function(payload, config = APP_CONFIG, timeout_sec = 30) {
   if (!nzchar(config$webhook_url)) {
-    stop("This drillr build does not contain an assignment-service URL.")
+    stop("This Drillr build does not contain an assignment-service URL.")
   }
 
   response <- httr2::request(config$webhook_url) |>
@@ -115,12 +114,20 @@ assignment_scalar <- function(x, default = NA_character_) {
 
 empty_assignment_table <- function() {
   data.frame(
-    assignment_id = character(), course_id = character(), week_id = character(),
-    student_id = character(), item_label = character(), topic = character(),
-    points = numeric(), question_hash = character(), assigned_at_utc = character(),
-    assignment_reason = character(), assignment_status = character(),
-    retired_at_utc = character(), retired_reason = character(),
-    retired_request_id = character(), stringsAsFactors = FALSE
+    assignment_id = character(),
+    course_id = character(),
+    week_id = character(),
+    student_id = character(),
+    item_label = character(),
+    topic = character(),
+    points = numeric(),
+    assigned_at_utc = character(),
+    assignment_reason = character(),
+    assignment_status = character(),
+    retired_at_utc = character(),
+    retired_reason = character(),
+    retired_request_id = character(),
+    stringsAsFactors = FALSE
   )
 }
 
@@ -137,7 +144,6 @@ assignment_response_table <- function(body) {
       item_label = as.character(assignment_scalar(row$item_label)),
       topic = as.character(assignment_scalar(row$topic)),
       points = suppressWarnings(as.numeric(assignment_scalar(row$points, NA_real_))),
-      question_hash = as.character(assignment_scalar(row$question_hash)),
       assigned_at_utc = as.character(assignment_scalar(row$assigned_at_utc)),
       assignment_reason = as.character(assignment_scalar(row$assignment_reason)),
       assignment_status = as.character(assignment_scalar(row$assignment_status)),
@@ -161,7 +167,7 @@ validate_persisted_assignments <- function(assignments, manifest) {
     )
   }
 
-  manifest_required <- c("item_label", "topic", "points", "question_hash")
+  manifest_required <- c("item_label", "topic", "points")
   missing_manifest <- setdiff(manifest_required, names(manifest))
   if (length(missing_manifest)) {
     stop(
@@ -180,7 +186,6 @@ validate_persisted_assignments <- function(assignments, manifest) {
     anyNA(assignments$assignment_id) || any(!nzchar(assignments$assignment_id)) ||
     anyNA(assignments$item_label) || any(!nzchar(assignments$item_label)) ||
     anyNA(assignments$topic) || any(!nzchar(assignments$topic)) ||
-    anyNA(assignments$question_hash) || any(!nzchar(assignments$question_hash)) ||
     anyNA(assignments$points)
   ) {
     stop("Active assignment rows contain missing required metadata.")
@@ -189,37 +194,33 @@ validate_persisted_assignments <- function(assignments, manifest) {
     stop("The assignment service returned a non-active row in the active queue.")
   }
 
-  missing_from_manifest <- setdiff(assignments$item_label, manifest$item_label)
-  if (length(missing_from_manifest)) {
-    stop(
-      "Your current Drillr question bank does not contain assigned question(s): ",
-      paste(missing_from_manifest, collapse = ", "),
-      ". Close and reopen Drillr to update before continuing."
-    )
-  }
+  # If manifest and Rmd temporarily disagree, the launch-time reconciliation has
+  # already restricted manifest to item_label values present in both. Ignore any
+  # server assignment outside that usable intersection rather than failing the app.
+  assignments <- assignments[
+    assignments$item_label %in% manifest$item_label,
+    ,
+    drop = FALSE
+  ]
+  if (!nrow(assignments)) return(assignments)
 
-  expected <- manifest[match(assignments$item_label, manifest$item_label), , drop = FALSE]
+  expected <- manifest[
+    match(assignments$item_label, manifest$item_label),
+    ,
+    drop = FALSE
+  ]
   if (
     any(assignments$topic != expected$topic) ||
     !isTRUE(all.equal(
-      as.numeric(assignments$points), as.numeric(expected$points),
+      as.numeric(assignments$points),
+      as.numeric(expected$points),
       check.attributes = FALSE
-    )) ||
-    any(assignments$question_hash != expected$question_hash)
+    ))
   ) {
-    stop(
-      "The server assignment does not match this Drillr question bank. ",
-      "Close and reopen Drillr to update before continuing."
-    )
+    stop("The server assignment metadata do not match this Drillr question manifest.")
   }
 
   assignments
-}
-
-resolve_assignment_bank_mismatch <- function(error) {
-  update <- drillr:::drillr_update_for_service(error$body)
-  error$message <- update$message
-  stop(error)
 }
 
 initialize_student_assignments <- function(
@@ -230,22 +231,14 @@ initialize_student_assignments <- function(
   payload <- assignment_service_payload(
     "get_or_create_active_assignments",
     student_id = student_id,
-    config = config
+    config = config,
+    manifest = manifest
   )
 
-  body <- tryCatch(
-    post_assignment_service(payload, config = config),
-    drillr_service_error = function(e) {
-      if (identical(e$code, "bank_update_required")) {
-        resolve_assignment_bank_mismatch(e)
-      }
-      stop(e)
-    }
-  )
+  body <- post_assignment_service(payload, config = config)
   assignments <- assignment_response_table(body)
   assignments <- validate_persisted_assignments(assignments, manifest)
   attr(assignments, "retired_assignments") <- body$retired_assignments %||% list()
-  attr(assignments, "bank_version") <- body$bank_version %||% ""
   assignments
 }
 

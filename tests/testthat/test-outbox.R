@@ -14,13 +14,12 @@ test_that("outbox persists payloads and filters by student", {
     event = "exercise_result"
   )
 
-  drillr:::drillr_outbox_enqueue(payload_a, "hash-a", dir)
-  drillr:::drillr_outbox_enqueue(payload_b, "hash-b", dir)
+  drillr:::drillr_outbox_enqueue(payload_a, dir)
+  drillr:::drillr_outbox_enqueue(payload_b, dir)
 
   entries <- drillr:::drillr_outbox_entries("student-a", "course", dir)
   expect_length(entries, 1)
   expect_identical(entries[[1]]$payload$request_id, "req-a")
-  expect_identical(entries[[1]]$question_hash, "hash-a")
 
   drillr:::drillr_outbox_remove(entries[[1]])
   expect_length(drillr:::drillr_outbox_entries("student-a", "course", dir), 0)
@@ -34,18 +33,18 @@ test_that("outbox replacement retains request id and queue time", {
     request_id = "stable-request",
     course_id = "course",
     student_id = "student",
-    bank_version = "md5-old"
+    item_label = "q1"
   )
-  drillr:::drillr_outbox_enqueue(payload, "hash", dir)
+  drillr:::drillr_outbox_enqueue(payload, dir)
   record <- drillr:::drillr_outbox_entries("student", "course", dir)[[1]]
 
   replacement <- payload
-  replacement$bank_version <- "md5-new"
+  replacement$item_label <- "q2"
   drillr:::drillr_outbox_replace(record, replacement)
   updated <- drillr:::drillr_outbox_entries("student", "course", dir)[[1]]
 
   expect_identical(updated$payload$request_id, "stable-request")
-  expect_identical(updated$payload$bank_version, "md5-new")
+  expect_identical(updated$payload$item_label, "q2")
   expect_identical(updated$queued_at_utc, record$queued_at_utc)
 
   bad <- replacement

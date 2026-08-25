@@ -52,11 +52,16 @@ progress_response_table <- function(body) {
   out
 }
 
-progress_request_payload <- function(student_id, config = APP_CONFIG) {
+progress_request_payload <- function(
+  student_id,
+  config = APP_CONFIG,
+  manifest = read_question_manifest(config$manifest_path)
+) {
   payload <- assignment_service_payload(
     "get_active_assignments",
     student_id = student_id,
-    config = config
+    config = config,
+    manifest = manifest
   )
   settings <- assignment_config(config)
   payload$include_progress <- TRUE
@@ -64,17 +69,13 @@ progress_request_payload <- function(student_id, config = APP_CONFIG) {
   payload
 }
 
-fetch_student_progress <- function(student_id, config = APP_CONFIG) {
-  payload <- progress_request_payload(student_id, config)
-  body <- tryCatch(
-    post_assignment_service(payload, config = config),
-    drillr_service_error = function(e) {
-      if (identical(e$code, "bank_update_required")) {
-        resolve_assignment_bank_mismatch(e)
-      }
-      stop(e)
-    }
-  )
+fetch_student_progress <- function(
+  student_id,
+  config = APP_CONFIG,
+  manifest = read_question_manifest(config$manifest_path)
+) {
+  payload <- progress_request_payload(student_id, config, manifest)
+  body <- post_assignment_service(payload, config = config)
 
   rows <- progress_response_table(body)
   if (is.null(rows)) {
@@ -161,8 +162,10 @@ refresh_session_progress <- function(session) {
   }
 
   config <- session$userData$runtime_config %||% APP_CONFIG
+  manifest <- session$userData$question_manifest %||%
+    read_question_manifest(config$manifest_path)
   result <- tryCatch(
-    fetch_student_progress(identity$student_id, config),
+    fetch_student_progress(identity$student_id, config, manifest),
     error = function(e) e
   )
 
