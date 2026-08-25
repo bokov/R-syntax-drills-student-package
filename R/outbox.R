@@ -22,14 +22,13 @@ drillr_outbox_write_record <- function(record, path) {
   invisible(path)
 }
 
-drillr_outbox_enqueue <- function(payload, question_hash = "", dir = drillr_outbox_dir()) {
+drillr_outbox_enqueue <- function(payload, dir = drillr_outbox_dir()) {
   if (is.null(payload$request_id) || !nzchar(as.character(payload$request_id))) {
     stop("Outbox payload requires a request_id.")
   }
   target <- file.path(dir, drillr_outbox_filename(payload$request_id))
   record <- list(
     payload = payload,
-    question_hash = as.character(question_hash %||% ""),
     queued_at_utc = format(Sys.time(), "%Y-%m-%dT%H:%M:%OS3Z", tz = "UTC")
   )
   drillr_outbox_write_record(record, target)
@@ -80,7 +79,7 @@ drillr_outbox_remove <- function(record) {
   invisible(TRUE)
 }
 
-drillr_outbox_replace <- function(record, payload, question_hash = record$question_hash) {
+drillr_outbox_replace <- function(record, payload) {
   path <- record$path
   if (is.null(path) || !nzchar(path)) stop("Outbox record has no path.")
   original_id <- as.character(record$payload$request_id %||% "")
@@ -90,7 +89,6 @@ drillr_outbox_replace <- function(record, payload, question_hash = record$questi
   }
   replacement <- list(
     payload = payload,
-    question_hash = as.character(question_hash %||% ""),
     queued_at_utc = as.character(record$queued_at_utc %||% "")
   )
   drillr_outbox_write_record(replacement, path)
