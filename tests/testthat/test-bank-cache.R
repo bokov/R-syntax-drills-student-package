@@ -13,6 +13,14 @@ test_that("unchanged manifest does not download the runtime pool", {
   dir.create(cache_root)
   requested <- character()
 
+  #' Copy requested test assets while recording which URLs were requested
+  #'
+  #' @param url Synthetic asset name used by this test.
+  #' @param path Destination path supplied by `drillr_refresh_bank()`.
+  #' @param timeout_sec Timeout argument required by the downloader interface;
+  #'   unused by this local file-copy implementation.
+  #' @return Invisibly, `path` after copying the selected bundled asset.
+  #' @details Local helper used only by this test as the injected `downloader`.
   downloader <- function(url, path, timeout_sec) {
     requested <<- c(requested, url)
     source <- switch(
@@ -56,6 +64,15 @@ test_that("changed manifest downloads and installs a matching runtime pool", {
   file.copy(bundled$pool_path, pool_source)
 
   requested <- character()
+
+  #' Copy the changed manifest or matching pool while recording requests
+  #'
+  #' @param url Synthetic `manifest` or `pool` URL used by this test.
+  #' @param path Destination path supplied by `drillr_refresh_bank()`.
+  #' @param timeout_sec Timeout argument required by the downloader interface;
+  #'   unused by this local file-copy implementation.
+  #' @return Invisibly, `path` after copying the selected test asset.
+  #' @details Local helper used only by this test as the injected `downloader`.
   downloader <- function(url, path, timeout_sec) {
     requested <<- c(requested, url)
     source <- if (identical(url, "manifest")) manifest_source else pool_source
@@ -84,6 +101,14 @@ test_that("forced refresh downloads both files even when manifest is unchanged",
   dir.create(cache_root)
   requested <- character()
 
+  #' Copy bundled assets while recording forced-refresh requests
+  #'
+  #' @param url Synthetic `manifest` or `pool` URL used by this test.
+  #' @param path Destination path supplied by `drillr_refresh_bank()`.
+  #' @param timeout_sec Timeout argument required by the downloader interface;
+  #'   unused by this local file-copy implementation.
+  #' @return Invisibly, `path` after copying the selected bundled asset.
+  #' @details Local helper used only by this test as the injected `downloader`.
   downloader <- function(url, path, timeout_sec) {
     requested <<- c(requested, url)
     source <- if (identical(url, "manifest")) bundled$manifest_path else bundled$pool_path

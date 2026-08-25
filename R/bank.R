@@ -15,6 +15,18 @@
 
 .drillr_bank_prepared_env <- "DRILLR_BANK_PREPARED"
 
+# Bank cache paths and readers ------------------------------------------------
+
+#' Locate the runtime question-bank cache
+#'
+#' Returns Drillr's per-user cache directory for downloaded runtime-bank files,
+#' optionally creating it before use.
+#'
+#' @param create If `TRUE`, create the cache directory recursively when needed.
+#' @return A length-one character path to the runtime-bank cache root.
+#' @details Called directly by `drillr_cached_bank()`,
+#'   `drillr_install_bank_pair()`, and `drillr_refresh_bank()` through default
+#'   arguments. It has no within-repo function dependencies.
 drillr_bank_cache_root <- function(create = TRUE) {
   path <- file.path(tools::R_user_dir("drillr", "cache"), "runtime-bank")
   if (isTRUE(create) && !dir.exists(path)) {
@@ -23,15 +35,45 @@ drillr_bank_cache_root <- function(create = TRUE) {
   path
 }
 
+#' Read a runtime question manifest
+#'
+#' Loads a manifest CSV from disk using the package's expected string and
+#' missing-value conventions, failing immediately when the file is absent.
+#'
+#' @param path Path to a question-manifest CSV file.
+#' @return A data frame containing the manifest rows and columns.
+#' @details Called directly by `drillr_bank_from_pair()` and
+#'   `drillr_refresh_bank()`. It has no within-repo function dependencies.
 drillr_read_bank_manifest <- function(path) {
   if (!file.exists(path)) stop("Question manifest does not exist: ", path)
   utils::read.csv(path, stringsAsFactors = FALSE, na.strings = "")
 }
 
+#' Compare two manifests by their parsed content
+#'
+#' Tests whether two manifest data frames are equal while ignoring attributes,
+#' which determines whether the runtime question pool also needs downloading.
+#'
+#' @param old Previously available manifest data frame.
+#' @param new Candidate replacement manifest data frame.
+#' @return A single logical value indicating content equality.
+#' @details Called directly by `drillr_refresh_bank()`. It has no within-repo
+#'   function dependencies.
 drillr_manifests_equal <- function(old, new) {
   isTRUE(all.equal(old, new, check.attributes = FALSE))
 }
 
+# Bank validation -------------------------------------------------------------
+
+#' Extract scored exercise labels from a runtime question pool
+#'
+#' Reads an Rmd question pool and extracts chunk labels for exercise chunks so
+#' the package can compare the executable pool with the manifest's scored IDs.
+#'
+#' @param path Path to a runtime question-pool Rmd file.
+#' @return A character vector of exercise chunk labels, possibly empty.
+#' @details Called directly by `drillr_bank_mismatch()`. It has no within-repo
+#'   function dependencies.
 drillr_pool_item_labels <- function(path) {
   if (!file.exists(path)) stop("Runtime question pool does not exist: ", path)
   lines <- readLines(path, warn = FALSE, encoding = "UTF-8")
@@ -43,6 +85,18 @@ drillr_pool_item_labels <- function(path) {
   vapply(pieces, function(x) x[[2]], character(1))
 }
 
+#' Compare manifest IDs with runtime-pool exercise IDs
+#'
+#' Validates the manifest columns and duplicate IDs, then identifies scored
+#' labels present only in the manifest, only in the Rmd pool, or in both. The
+#' intersection is the usable question set when the two files disagree.
+#'
+#' @param manifest Parsed question-manifest data frame.
+#' @param pool_path Path to the matching runtime question-pool Rmd file.
+#' @return A list with `manifest_only`, `pool_only`, and `usable` character
+#'   vectors.
+#' @details Called directly by `drillr_bank_from_pair()`. Depends on
+#'   `drillr_pool_item_labels()`.
 drillr_bank_mismatch <- function(manifest, pool_path) {
   required <- c("item_label", "event", "points")
   missing <- setdiff(required, names(manifest))
@@ -72,6 +126,16 @@ drillr_bank_mismatch <- function(manifest, pool_path) {
   )
 }
 
+#' Build the user-facing warning for a bank mismatch
+#'
+#' Converts manifest/pool ID differences into the warning displayed by the
+#' tutorial while allowing Drillr to continue with the intersection of IDs.
+#'
+#' @param mismatch List returned by `drillr_bank_mismatch()`.
+#' @return An empty string when there is no mismatch; otherwise a warning
+#'   message describing manifest-only and Rmd-only item labels.
+#' @details Called directly by `drillr_bank_from_pair()`. It has no within-repo
+#'   function dependencies.
 drillr_bank_warning <- function(mismatch) {
   if (!length(mismatch$manifest_only) && !length(mismatch$pool_only)) return("")
 
@@ -95,6 +159,24 @@ drillr_bank_warning <- function(mismatch) {
   )
 }
 
+#' Construct a validated runtime-bank object from two files
+#'
+#' Reads and reconciles a manifest/pool pair, filters the manifest to usable
+#' item labels, and packages the paths, content, mismatch information, source,
+#' and update metadata consumed by the tutorial launcher and runtime.
+#'
+#' @param manifest_path Path to the question-manifest CSV.
+#' @param pool_path Path to the runtime question-pool Rmd.
+#' @param source Character label describing where the pair came from.
+#' @param updated Whether this pair was newly installed during the current
+#'   refresh.
+#' @param notice Optional user-facing informational message.
+#' @return A runtime-bank list containing normalized paths, filtered `manifest`,
+#'   `mismatch`, `warning`, `notice`, `source`, and `updated`.
+#' @details Called by `drillr_bundled_bank()`, `drillr_cached_bank()`,
+#'   `drillr_active_bank_from_env()`, and `drillr_install_bank_pair()`, and
+#'   directly by `test-bank-cache.R`. Depends on `drillr_read_bank_manifest()`,
+#'   `drillr_bank_mismatch()`, and `drillr_bank_warning()`.
 drillr_bank_from_pair <- function(
   manifest_path,
   pool_path,
@@ -117,6 +199,16 @@ drillr_bank_from_pair <- function(
   )
 }
 
+# Bank sources and activation -------------------------------------------------
+
+#' Load the bank bundled with the installed package
+#'
+#' Locates the tutorial's packaged manifest and runtime pool and turns them into
+#' a validated bank object used as the offline/default fallback.
+#'
+#' @return A validated runtime-bank list with `source = "bundled"`.
+#' @details Called directly by `drillr_refresh_bank()` and
+#'   `test-bank-cache.R`. Depends on `drillr_bank_from_pair()`.
 drillr_bundled_bank <- function() {
   tutorial <- system.file("tutorials", "drills", package = "drillr")
   if (!nzchar(tutorial)) stop("Could not locate the installed Drillr tutorial.")
@@ -127,6 +219,18 @@ drillr_bundled_bank <- function() {
   )
 }
 
+#' Load the currently cached bank
+#'
+#' Reads the installed cache pair when both expected files exist and are valid;
+#' invalid or incomplete cache state is treated as unavailable rather than
+#' preventing Drillr from falling back to the bundled bank.
+#'
+#' @param cache_root Runtime-bank cache root.
+#' @return A validated bank with `source = "cache"`, or `NULL` when no usable
+#'   cache pair exists.
+#' @details Called directly by `drillr_refresh_bank()`. Depends on
+#'   `drillr_bank_cache_root()` through its default and
+#'   `drillr_bank_from_pair()`.
 drillr_cached_bank <- function(cache_root = drillr_bank_cache_root()) {
   dir <- file.path(cache_root, "current")
   manifest_path <- file.path(dir, "question_manifest.csv")
@@ -139,6 +243,15 @@ drillr_cached_bank <- function(cache_root = drillr_bank_cache_root()) {
   )
 }
 
+#' Recover an already activated bank from environment variables
+#'
+#' Reconstructs the manifest/pool pair passed from a prelaunch process to the
+#' tutorial process, returning `NULL` if either path is absent or unusable.
+#'
+#' @return A validated bank with `source = "environment"`, or `NULL` when the
+#'   activated pair cannot be recovered.
+#' @details Called directly by `drillr_runtime_bank()`. Depends on
+#'   `drillr_bank_from_pair()` and the `.drillr_bank_env` variable names.
 drillr_active_bank_from_env <- function() {
   manifest_path <- Sys.getenv(.drillr_bank_env[["manifest"]], unset = "")
   pool_path <- Sys.getenv(.drillr_bank_env[["pool"]], unset = "")
@@ -150,6 +263,19 @@ drillr_active_bank_from_env <- function() {
   )
 }
 
+#' Activate a runtime bank for the tutorial process
+#'
+#' Writes the selected manifest and pool paths to environment variables and
+#' records whether the bank has been prepared for a subsequent tutorial launch.
+#'
+#' @param bank Validated runtime-bank list containing non-empty `manifest_path`
+#'   and `pool_path` values.
+#' @param prepared If `TRUE`, mark the environment as carrying a prelaunch bank
+#'   that should be consumed once by the tutorial runtime.
+#' @return Invisibly, `bank`.
+#' @details Called directly by `drillr_runtime_bank()`. It uses the
+#'   `.drillr_bank_env` and `.drillr_bank_prepared_env` constants but has no
+#'   within-repo function dependencies.
 drillr_activate_bank <- function(bank, prepared = FALSE) {
   stopifnot(
     is.list(bank),
@@ -171,6 +297,19 @@ drillr_activate_bank <- function(bank, prepared = FALSE) {
   invisible(bank)
 }
 
+# Downloading and cache installation -----------------------------------------
+
+#' Download one runtime-bank asset
+#'
+#' Retrieves an asset over HTTP and writes the response bytes to the requested
+#' path. This is the default downloader injected into bank refreshes.
+#'
+#' @param url Asset URL.
+#' @param path Destination file path.
+#' @param timeout_sec Request timeout in seconds.
+#' @return Invisibly, `path` after the response body has been written.
+#' @details Used as the default `downloader` by `drillr_refresh_bank()`. It has
+#'   no within-repo function dependencies.
 drillr_download_asset <- function(url, path, timeout_sec = 15) {
   response <- httr2::request(url) |>
     httr2::req_timeout(timeout_sec) |>
@@ -182,6 +321,20 @@ drillr_download_asset <- function(url, path, timeout_sec = 15) {
   invisible(path)
 }
 
+#' Install a validated manifest/pool pair into the cache
+#'
+#' Validates incoming files, stages copies together, swaps them into the
+#' `current` cache directory with rollback on failure, and returns the installed
+#' pair as an updated runtime-bank object.
+#'
+#' @param manifest_path Path to the incoming question-manifest CSV.
+#' @param pool_path Path to the incoming runtime question-pool Rmd.
+#' @param cache_root Runtime-bank cache root.
+#' @return A validated cached bank with `updated = TRUE`.
+#' @details Called directly by `drillr_refresh_bank()`. Depends on
+#'   `drillr_bank_cache_root()` through its default and
+#'   `drillr_bank_from_pair()` for both pre-install validation and the returned
+#'   cache object.
 drillr_install_bank_pair <- function(
   manifest_path,
   pool_path,
@@ -224,6 +377,28 @@ drillr_install_bank_pair <- function(
                         updated = TRUE)
 }
 
+#' Refresh the locally available runtime bank from GitHub
+#'
+#' Chooses the cached or bundled bank as the current fallback, downloads the
+#' remote manifest, and downloads/installs the matching pool only when the
+#' manifest changed or a forced refresh was requested. Network failures return
+#' the current local bank with a notice instead of preventing tutorial launch.
+#'
+#' @param force If `TRUE`, treat the bank as changed even when the downloaded
+#'   manifest matches the local manifest.
+#' @param cache_root Runtime-bank cache root.
+#' @param manifest_url URL for the published question manifest.
+#' @param pool_url URL for the published runtime question pool.
+#' @param downloader Function accepting `url`, `path`, and `timeout_sec`; tests
+#'   inject local-copy implementations to exercise refresh behavior offline.
+#' @return A validated runtime-bank list representing the current bundled,
+#'   cached, or newly installed pair, with `notice`/`updated` reflecting the
+#'   refresh outcome.
+#' @details Called directly by `drillr_runtime_bank()` and by
+#'   `test-bank-cache.R`. Depends on `drillr_bundled_bank()`,
+#'   `drillr_cached_bank()`, `%||%`, `drillr_read_bank_manifest()`,
+#'   `drillr_manifests_equal()`, `drillr_download_asset()` through its default,
+#'   and `drillr_install_bank_pair()`.
 drillr_refresh_bank <- function(
   force = FALSE,
   cache_root = drillr_bank_cache_root(),
@@ -299,6 +474,20 @@ drillr_refresh_bank <- function(
   )
 }
 
+#' Select and activate the runtime bank for a Drillr process
+#'
+#' Reuses a once-prepared bank passed through environment variables when the
+#' tutorial process starts; otherwise refreshes the local bank and activates the
+#' selected pair for the current or subsequent process.
+#'
+#' @param force Passed to `drillr_refresh_bank()` to force a remote pool refresh.
+#' @param prelaunch If `TRUE`, mark the selected bank as prepared so the launched
+#'   tutorial process can consume the activated paths once.
+#' @return The selected validated runtime-bank list.
+#' @details Called by exported `drills()` before `learnr::run_tutorial()` and by
+#'   the setup chunk of `inst/tutorials/drills/drills.Rmd`. Depends on
+#'   `drillr_active_bank_from_env()`, `drillr_refresh_bank()`, and
+#'   `drillr_activate_bank()`.
 drillr_runtime_bank <- function(force = FALSE, prelaunch = FALSE) {
   if (
     !isTRUE(prelaunch) &&
@@ -314,4 +503,17 @@ drillr_runtime_bank <- function(force = FALSE, prelaunch = FALSE) {
   bank
 }
 
+# Utility helpers -------------------------------------------------------------
+
+#' Substitute a fallback for a null or empty value
+#'
+#' Provides the package-internal null-coalescing operation used to select a
+#' cached bank when available. Equivalent definitions also appear in other
+#' package source files, so the final namespace binding is intentionally
+#' interchangeable with those copies.
+#'
+#' @param x Value to return unless it is `NULL` or length zero.
+#' @param y Fallback value.
+#' @return `y` when `x` is `NULL` or empty; otherwise `x`.
+#' @details Used directly by `drillr_refresh_bank()` in this file.
 `%||%` <- function(x, y) if (is.null(x) || length(x) == 0) y else x

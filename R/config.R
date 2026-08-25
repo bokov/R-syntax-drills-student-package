@@ -7,6 +7,25 @@
 # client. Keep these defaults synchronized with the production authoring config.
 # Options/environment variables exist for development and testing; students do
 # not need to configure the package for normal use.
+
+#' Build the Drillr runtime configuration
+#'
+#' Collects package options and the webhook environment-variable fallback into
+#' the configuration list consumed by the student tutorial. This keeps runtime
+#' defaults in one place while allowing development and tests to override them.
+#'
+#' @return A named list containing the course ID, queue size, topic priority,
+#'   webhook URL, manifest path, and update notice expected by the tutorial
+#'   runtime.
+#'
+#' @section Within-repo dependencies:
+#' Uses `.drillr_default_webhook_url` as the final webhook URL fallback. It does
+#' not call any within-repo functions.
+#'
+#' @section Direct callers and output consumers:
+#' The packaged tutorial runtime calls this helper to obtain its client
+#' configuration. Tests in `tests/testthat/test-config.R` also exercise its
+#' output.
 drillr_runtime_config <- function() {
   webhook_url <- getOption("drillr.webhook_url", NULL)
   if (is.null(webhook_url)) {

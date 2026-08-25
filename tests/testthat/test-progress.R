@@ -1,3 +1,13 @@
+#' Load progress helpers into an isolated test environment
+#'
+#' Sources the installed tutorial's progress helper file into a fresh environment
+#' so response normalization and display formatting can be tested without a
+#' running Shiny/learnr session.
+#'
+#' @return An environment containing the functions and constants from
+#'   `inst/tutorials/drills/R/progress.R`.
+#' @details Used by all three tests in this file. It depends on the installed
+#'   tutorial copy of `progress.R` and has no callers outside this test file.
 load_progress_helpers <- function() {
   tutorial <- system.file("tutorials", "drills", package = "drillr")
   env <- new.env(parent = globalenv())
