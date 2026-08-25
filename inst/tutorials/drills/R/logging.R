@@ -61,7 +61,7 @@ log_service_request <- function(payload, config = APP_CONFIG, timeout_sec = 30) 
       ok = FALSE,
       transport_ok = FALSE,
       code = "",
-      message = "This drillr build does not contain an assignment-service URL."
+      message = "This Drillr build does not contain an assignment-service URL."
     ))
   }
 
@@ -106,43 +106,15 @@ apply_log_response <- function(session, payload, body, manifest) {
   invisible(body)
 }
 
-outbox_record_hash <- function(payload, manifest) {
-  question_hash_for_item(
-    as.character(payload$item_label %||% ""),
-    manifest,
-    default = ""
-  )
+queue_log_payload <- function(payload) {
+  drillr:::drillr_outbox_enqueue(payload)
 }
 
-queue_log_payload <- function(payload, manifest) {
-  drillr:::drillr_outbox_enqueue(
-    payload,
-    question_hash = outbox_record_hash(payload, manifest)
-  )
-}
-
-migrate_outbox_record <- function(record, manifest, config = APP_CONFIG) {
-  payload <- record$payload
-  queued_version <- as.character(payload$bank_version %||% "")
-  current_version <- as.character(config$bank_version %||% "")
-
-  if (!nzchar(queued_version) || !nzchar(current_version) || identical(queued_version, current_version)) {
-    if (nzchar(current_version) && !is.null(payload$package_version)) {
-      payload$package_version <- config$package_version
-    }
-    return(list(drop = FALSE, changed = FALSE, payload = payload))
-  }
-
-  item_label <- as.character(payload$item_label %||% "")
-  current_hash <- question_hash_for_item(item_label, manifest, default = "")
-  queued_hash <- as.character(record$question_hash %||% "")
-  if (!nzchar(current_hash) || !nzchar(queued_hash) || !identical(current_hash, queued_hash)) {
-    return(list(drop = TRUE, changed = FALSE, payload = payload))
-  }
-
-  payload$bank_version <- current_version
-  payload$package_version <- config$package_version
-  list(drop = FALSE, changed = TRUE, payload = payload)
+outbox_payload_is_usable <- function(payload, manifest) {
+  event <- as.character(payload$event %||% "")
+  if (!event %in% c("exercise_result", "question_submission")) return(TRUE)
+  label <- as.character(payload$item_label %||% "")
+  nzchar(label) && label %in% scored_manifest_labels(manifest)
 }
 
 flush_log_outbox <- function(
@@ -166,22 +138,13 @@ flush_log_outbox <- function(
   if (!length(records)) return(summary)
 
   for (record in records) {
-    migrated <- migrate_outbox_record(record, manifest, config)
-    if (isTRUE(migrated$drop)) {
+    if (!outbox_payload_is_usable(record$payload, manifest)) {
       drillr:::drillr_outbox_remove(record)
       summary$dropped <- summary$dropped + 1L
       next
     }
-    if (isTRUE(migrated$changed)) {
-      drillr:::drillr_outbox_replace(
-        record,
-        migrated$payload,
-        question_hash = record$question_hash
-      )
-      record$payload <- migrated$payload
-    }
 
-    result <- log_service_request(migrated$payload, config)
+    result <- log_service_request(record$payload, config)
     if (!isTRUE(result$transport_ok)) {
       summary$transport_failed <- TRUE
       summary$message <- result$message
@@ -191,14 +154,10 @@ flush_log_outbox <- function(
       summary$blocked <- TRUE
       summary$code <- result$code
       summary$message <- result$message
-      if (identical(result$code, "bank_update_required")) {
-        update <- drillr:::drillr_update_for_service(result$body)
-        summary$message <- update$message
-      }
       break
     }
 
-    apply_log_response(session, migrated$payload, result$body, manifest)
+    apply_log_response(session, record$payload, result$body, manifest)
     drillr:::drillr_outbox_remove(record)
     summary$sent <- summary$sent + 1L
   }
@@ -246,7 +205,8 @@ build_log_payload <- function(session, event, data, config, manifest) {
     settings <- assignment_config(config)
     payload$queue_size <- settings$queue_size
     payload$topic_priority <- unname(settings$topic_priority)
-    payload <- add_bank_handshake_fields(payload, config)
+    payload$reconcile_bank <- TRUE
+    payload$available_item_labels <- unname(scored_manifest_labels(manifest))
   }
 
   payload
@@ -270,7 +230,7 @@ post_log_event <- function(
       manifest = manifest
     )
     if (isTRUE(flush$transport_failed) || isTRUE(flush$blocked)) {
-      queue_log_payload(payload, manifest)
+      queue_log_payload(payload)
       msg <- if (nzchar(flush$message)) {
         flush$message
       } else {
@@ -286,28 +246,15 @@ post_log_event <- function(
 
   result <- log_service_request(payload, config)
   if (!isTRUE(result$transport_ok)) {
-    queue_log_payload(payload, manifest)
+    queue_log_payload(payload)
     msg <- "Connection problem: this response was saved locally and will retry automatically."
     set_logging_status(session, FALSE, msg)
     return(invisible(list(ok = FALSE, queued = TRUE, message = msg)))
   }
 
   if (!isTRUE(result$ok)) {
-    queueable <- result$code %in% c("bank_update_required", "bank_metadata_unavailable")
-    if (isTRUE(queueable)) queue_log_payload(payload, manifest)
-
-    msg <- result$message
-    if (identical(result$code, "bank_update_required")) {
-      update <- drillr:::drillr_update_for_service(result$body)
-      msg <- paste(update$message, "This response was saved for a safe retry.")
-    } else if (identical(result$code, "bank_metadata_unavailable")) {
-      msg <- paste(
-        "The grading service has not finished publishing its drill-bank metadata.",
-        "This response was saved locally and will retry automatically."
-      )
-    }
-    set_logging_status(session, FALSE, msg)
-    return(invisible(list(ok = FALSE, queued = queueable, message = msg)))
+    set_logging_status(session, FALSE, result$message)
+    return(invisible(list(ok = FALSE, queued = FALSE, message = result$message)))
   }
 
   apply_log_response(session, payload, result$body, manifest)
